@@ -1,0 +1,21 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "An template with create S3 Bucket.",
+	"Parameters": {
+		"BucketName": {
+			"Description": "The S3 Bucket name to store log files",
+			"Type": "String",
+			"Default":"histbizlog-hanway",
+			"AllowedPattern": "[a-z0-9][a-z0-9\\-\\.]{2,62}"
+		}
+	},
+	"Resources": {
+		"S3Bucket": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties" : {
+				"AccessControl" : "Private",
+				"BucketName" : {"Ref": "BucketName"}
+			}
+		}
+	}
+}

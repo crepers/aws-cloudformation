@@ -1,0 +1,177 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "An template with an IAM role for a S3 bucket to store log, cretae a Kinesis Firehose stream and a CloudWatch",
+	"Parameters": {
+		"IAMRoleName": {
+			"Description": "IAM Role to be associated with the Kinesis firehose delivery stream",
+			"Type": "String"
+		},
+		"S3BucketName": {
+			"Description": "The S3 Bucket name to store log files",
+			"Type": "String",
+			"Default":"histbizlog-hanway",
+			"AllowedPattern": "[a-z0-9][a-z0-9\\-\\.]{2,62}"
+		},
+		"LogStreamName": {
+			"Description": "The Kinesis Firehose steam name to delivery log",
+			"Type": "String"
+		},
+		"S3DestinationPrefix": {
+			"Description": "The S3 Bucket Folder name to store log files",
+			"Type": "String",
+			"Default":"prod",
+			"AllowedPattern": "[a-z0-9][a-z0-9\\-\\.\\/]{2,62}"
+		},
+		"CloudWatchLogStreamName": {
+			"Description": "CloudWatch log stream to create",
+			"Type": "String"
+		},
+		"CloudWatchLogsRetention": {
+			"Description": "Number of days cloud watch logs should be retained",
+			"Type": "String"
+		}
+	},
+	"Resources": {
+		"S3Bucket": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties" : {
+				"AccessControl" : "Private",
+				"BucketName" : {"Ref": "S3BucketName"}
+			}
+		},
+		"LogDeliveryStreamAccessRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"AssumeRolePolicyDocument": {
+					"Version" : "2012-10-17",
+					"Statement": [{
+						"Effect": "Allow",
+						"Principal": {
+							"Service": "firehose.amazonaws.com"
+						},
+						"Action": "sts:AssumeRole",
+						"Condition": {
+							"StringEquals": {
+								"sts:ExternalId": { "Ref": "AWS::AccountId" }
+							}
+						}
+					}]
+				},
+				"RoleName": { "Ref": "IAMRoleName" },
+				"Policies": [{
+					"PolicyName": "log-deliverystream-access-policy",
+					"PolicyDocument": {
+						"Version": "2012-10-17",
+						"Statement": [
+							{
+								"Sid": "AllowAccessToS3Bucket",
+								"Effect": "Allow",      
+								"Action": [        
+									"s3:AbortMultipartUpload",        
+									"s3:GetBucketLocation",        
+									"s3:GetObject",        
+									"s3:ListBucket",        
+									"s3:ListBucketMultipartUploads",        
+									"s3:PutObject"
+								],      
+								"Resource": [        
+									{ 
+										"Fn::Join":[
+											"",
+											[
+												"arn:aws:s3:::", {
+													"Ref": "S3BucketName"
+												}
+											]
+										]
+									},
+									{ 
+										"Fn::Join":[
+											"",
+											[
+												"arn:aws:s3:::", {
+													"Ref": "S3BucketName"
+												},
+												"/*"
+											] 
+										]
+									}		    
+								]    
+							},                            
+							{
+								"Sid": "AllowCloudWatchLogging",
+								"Effect": "Allow",
+								"Action": [
+									"logs:PutLogEvents"
+								],
+								"Resource": [
+									{ 
+										"Fn::Join": [
+											"",
+											[
+												"arn:aws:logs:",
+												{ "Ref": "AWS::Region" },
+												":",
+												{ "Ref": "AWS::AccountId"},
+												":log-group:/aws/kinesisfirehose/",
+												{ "Ref": "LogStreamName"},
+												":log-stream:*"
+											] 
+										]
+									}
+								]
+							}
+						]
+					}
+				}]
+			}
+		},
+		"LogGroup": {
+			"Type" : "AWS::Logs::LogGroup",
+			"Properties" : {
+				"LogGroupName" : {
+					"Fn::Join": [
+						"", [
+							"/aws/kinesisfirehose/",
+							{ "Ref": "LogStreamName"}
+						]
+					]
+				},
+				"RetentionInDays" : { "Ref": "CloudWatchLogsRetention" }
+			}
+		},
+		"LogStream": {
+			"Type" : "AWS::Logs::LogStream",
+			"Properties" : {
+				"LogGroupName" : { "Ref": "LogGroup" },
+				"LogStreamName" : { "Ref": "CloudWatchLogStreamName" }
+			},
+			"DependsOn": [
+				"LogGroup"
+			]
+		},		
+		"LogKinesisStream": {
+			"Type" : "AWS::KinesisFirehose::DeliveryStream",
+			"Properties" : {
+				"DeliveryStreamName" : { "Ref": "LogStreamName" },
+				"DeliveryStreamType" : "DirectPut",
+				"S3DestinationConfiguration" : {
+					"BucketARN": {"Fn::GetAtt": ["S3Bucket", "Arn"]},
+					"Prefix": {"Ref": "S3DestinationPrefix"},
+					"BufferingHints": {
+					  "IntervalInSeconds": 60,
+					  "SizeInMBs": 100
+					},
+					"CloudWatchLoggingOptions" : {
+					  "Enabled" : "false"
+					},
+					"CompressionFormat"        : "GZIP",
+					"EncryptionConfiguration"  : {
+					  "NoEncryptionConfig" : "NoEncryption"
+					},
+					"RoleARN": {"Fn::GetAtt": ["LogDeliveryStreamAccessRole", "Arn"]}
+				}
+			}
+		}
+	}
+}
